@@ -1,0 +1,9 @@
+ls
+cd system
+ls 
+cd ..
+cd system/folder1
+ls
+cd subfolder1
+cd
+
