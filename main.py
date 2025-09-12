@@ -16,7 +16,6 @@ MAX_FONT_SIZE = 40
 
 
 def expand_env_vars_system(token: str) -> str:
-    """Раскрытие переменных окружения реальной системы"""
     def replacer(match):
         var = match.group(1)
         return os.environ.get(var, match.group(0))
@@ -55,48 +54,40 @@ class Terminal(TextInput):
         self.text = self.prompt
         self.multiline = True
 
-        # история команд
         self.history = []
         self.history_index = None
         self.current_input = ""
 
-        # оформление
         self.background_color = (0, 0, 0, 1)
         self.foreground_color = (0, 1, 0, 1)
         self.font_size = DEFAULT_FONT_SIZE
 
-        # предупреждение если VFS не загружена
         if not self.vfs_loaded:
             warning = "Внимание! VFS не загружена. Введите команду:\nloadvfs <путь к ZIP> или exit"
             self.text += "\n" + warning
             self.cursor = self.get_cursor_from_index(len(self.text))
 
-        # если стартовый скрипт есть и VFS загружена
         if start_script and self.vfs_loaded:
             self.run_start_script(start_script)
 
-    # ---------------------- вставка текста и backspace ----------------------
+    def _get_prompt_index(self):
+        lines = self.text.splitlines()
+        last_line = lines[-1] if lines else ''
+        return len(self.text) - len(last_line) + len(self.prompt)
+
     def insert_text(self, substring, from_undo=False):
-        if self.cursor_index() < self._get_prompt_index():
-            self.cursor = self.get_cursor_from_index(len(self.text))
+        prompt_index = self._get_prompt_index()
+        if self.cursor_index() < prompt_index:
+            self.cursor = self.get_cursor_from_index(prompt_index)
         return super().insert_text(substring, from_undo=from_undo)
 
     def do_backspace(self, from_undo=False, mode='bkspc'):
-        if self.cursor_index() <= self._get_prompt_index():
+        prompt_index = self._get_prompt_index()
+        if self.cursor_index() <= prompt_index:
             return
         super().do_backspace(from_undo, mode)
 
-    def _get_prompt_index(self):
-        """Возвращает индекс в self.text, с которого начинается ввод после приглашения"""
-        lines = self.text.splitlines()
-        if not lines:
-            return 0
-        last_line = lines[-1]
-        return len(self.text) - len(last_line) + len(self.prompt)
-
-    # ---------------------- клавиши ----------------------
     def keyboard_on_key_down(self, window, keycode, text, modifiers):
-        # управление шрифтом
         if 'ctrl' in modifiers:
             if text == '+' or keycode[1] in ('plus', 'kp_plus', 'equal', '='):
                 self.font_size = min(self.font_size + 1, MAX_FONT_SIZE)
@@ -108,7 +99,6 @@ class Terminal(TextInput):
                 self.font_size = DEFAULT_FONT_SIZE
                 return True
 
-        # Enter
         if keycode[1] == "enter":
             last_line = self.text.splitlines()[-1]
             command_line = last_line[len(self.prompt):].strip()
@@ -124,7 +114,6 @@ class Terminal(TextInput):
             self.cursor = self.get_cursor_from_index(len(self.text))
             return True
 
-        # стрелки для истории
         if keycode[1] in ("up", "down"):
             if self.history:
                 if self.history_index is None:
@@ -141,16 +130,22 @@ class Terminal(TextInput):
                 self._replace_current_line(line)
             return True
 
+        if keycode[1] == "left":
+            prompt_index = self._get_prompt_index()
+            if self.cursor_index() <= prompt_index:
+                return True
+        if keycode[1] == "home":
+            self.cursor = self.get_cursor_from_index(self._get_prompt_index())
+            return True
+
         return super().keyboard_on_key_down(window, keycode, text, modifiers)
 
-    # ---------------------- история ----------------------
     def _replace_current_line(self, text):
         lines = self.text.splitlines()
         lines[-1] = self.prompt + text
         self.text = "\n".join(lines)
-        self.cursor = self.get_cursor_from_index(len(self.text))
+        self.cursor = self.get_cursor_from_index(len(self.prompt + text))
 
-    # ---------------------- стартовый скрипт ----------------------
     def run_start_script(self, script_path):
         if not os.path.exists(script_path):
             self.text += f"\nОшибка: стартовый скрипт не найден: {script_path}"
@@ -163,7 +158,6 @@ class Terminal(TextInput):
                 if not line or line.startswith('#'):
                     continue
 
-                # показываем команду
                 self.text += "\n" + self.prompt + line
                 self.cursor = self.get_cursor_from_index(len(self.text))
 
@@ -172,15 +166,12 @@ class Terminal(TextInput):
                 except Exception as e:
                     output = f"Ошибка при выполнении команды: {e}"
 
-                # показываем результат
                 if output:
                     self.text += "\n" + output
 
-            # в конце вернуть приглашение
             self.text += "\n" + self.prompt
             self.cursor = self.get_cursor_from_index(len(self.text))
 
-    # ---------------------- VFS ----------------------
     def _get_vfs_ref(self, path=None):
         if path is None:
             path = self.current_dir
@@ -209,7 +200,6 @@ class Terminal(TextInput):
                 path.append(p)
         return path
 
-    # ---------------------- команды ----------------------
     def cmd_cd(self, args):
         if not self.vfs_loaded:
             return "Ошибка: VFS не загружена. Используйте loadvfs <zip> или exit"
@@ -327,8 +317,6 @@ if __name__ == "__main__":
     parser.add_argument('--vfs-path', type=str, default=None, help='Путь к ZIP VFS')
     parser.add_argument('--start-script', type=str, default=None, help='Путь к стартовому скрипту')
     args = parser.parse_args()
-
-    print("DEBUG: параметры запуска:", args)
 
     vfs = load_vfs_from_zip(args.vfs_path) if args.vfs_path else None
     TerminalApp(vfs=vfs, start_script=args.start_script).run()
