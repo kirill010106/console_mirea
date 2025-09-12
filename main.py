@@ -15,12 +15,12 @@ MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 40
 
 
-def expand_env_vars(command_line: str) -> str:
+def expand_env_vars_system(token: str) -> str:
+    """Раскрытие переменных окружения реальной системы"""
     def replacer(match):
         var = match.group(1)
-        value = os.environ.get(var)
-        return value if value is not None else match.group(0)
-    return re.sub(r'\$([A-Za-z_][A-Za-z0-9_]*)', replacer, command_line)
+        return os.environ.get(var, match.group(0))
+    return re.sub(r'\$([A-Za-z_][A-Za-z0-9_]*)', replacer, token)
 
 
 def load_vfs_from_zip(zip_path):
@@ -53,7 +53,6 @@ class Terminal(TextInput):
         self.hostname = socket.gethostname()
         self.prompt = f"{self.username}@{self.hostname}:~$ "
         self.text = self.prompt
-        self.cursor = (len(self.prompt), 0)
         self.multiline = True
 
         # история команд
@@ -70,15 +69,16 @@ class Terminal(TextInput):
         if not self.vfs_loaded:
             warning = "Внимание! VFS не загружена. Введите команду:\nloadvfs <путь к ZIP> или exit"
             self.text += "\n" + warning
-            self.cursor = (0, len(self.text.splitlines()) - 1)
+            self.cursor = self.get_cursor_from_index(len(self.text))
 
         # если стартовый скрипт есть и VFS загружена
         if start_script and self.vfs_loaded:
             self.run_start_script(start_script)
 
+    # ---------------------- вставка текста и backspace ----------------------
     def insert_text(self, substring, from_undo=False):
         if self.cursor_index() < self._get_prompt_index():
-            self.cursor = (len(self.text.splitlines()[-1]), len(self.text.splitlines()) - 1)
+            self.cursor = self.get_cursor_from_index(len(self.text))
         return super().insert_text(substring, from_undo=from_undo)
 
     def do_backspace(self, from_undo=False, mode='bkspc'):
@@ -86,6 +86,15 @@ class Terminal(TextInput):
             return
         super().do_backspace(from_undo, mode)
 
+    def _get_prompt_index(self):
+        """Возвращает индекс в self.text, с которого начинается ввод после приглашения"""
+        lines = self.text.splitlines()
+        if not lines:
+            return 0
+        last_line = lines[-1]
+        return len(self.text) - len(last_line) + len(self.prompt)
+
+    # ---------------------- клавиши ----------------------
     def keyboard_on_key_down(self, window, keycode, text, modifiers):
         # управление шрифтом
         if 'ctrl' in modifiers:
@@ -112,7 +121,7 @@ class Terminal(TextInput):
             if output:
                 self.text += "\n" + output
             self.text += "\n" + self.prompt
-            self.cursor = (len(self.prompt), len(self.text.splitlines()) - 1)
+            self.cursor = self.get_cursor_from_index(len(self.text))
             return True
 
         # стрелки для истории
@@ -139,26 +148,37 @@ class Terminal(TextInput):
         lines = self.text.splitlines()
         lines[-1] = self.prompt + text
         self.text = "\n".join(lines)
-        self.cursor = (len(self.prompt + text), len(lines) - 1)
+        self.cursor = self.get_cursor_from_index(len(self.text))
 
     # ---------------------- стартовый скрипт ----------------------
     def run_start_script(self, script_path):
         if not os.path.exists(script_path):
-            print(f"Стартовый скрипт не найден: {script_path}")
+            self.text += f"\nОшибка: стартовый скрипт не найден: {script_path}"
+            self.cursor = self.get_cursor_from_index(len(self.text))
             return
+
         with open(script_path, 'r') as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith('#'):
                     continue
+
+                # показываем команду
                 self.text += "\n" + self.prompt + line
-                self.cursor = (len(self.prompt + line), len(self.text.splitlines()) - 1)
+                self.cursor = self.get_cursor_from_index(len(self.text))
+
                 try:
                     output = self.execute_command(line)
                 except Exception as e:
                     output = f"Ошибка при выполнении команды: {e}"
+
+                # показываем результат
                 if output:
                     self.text += "\n" + output
+
+            # в конце вернуть приглашение
+            self.text += "\n" + self.prompt
+            self.cursor = self.get_cursor_from_index(len(self.text))
 
     # ---------------------- VFS ----------------------
     def _get_vfs_ref(self, path=None):
@@ -206,20 +226,59 @@ class Terminal(TextInput):
     def cmd_ls(self, args):
         if not self.vfs_loaded:
             return "Ошибка: VFS не загружена. Используйте loadvfs <zip> или exit"
-        ref = self._get_vfs_ref()
-        return "  ".join(ref.keys())
+
+        use_system_env = False
+        if args and args[0] == "-s":
+            use_system_env = True
+            args = args[1:]
+
+        if not args:
+            ref = self._get_vfs_ref()
+            return "  ".join(ref.keys())
+
+        outputs = []
+        for tok in args:
+            if use_system_env:
+                tok = expand_env_vars_system(tok)
+
+            try:
+                if tok.startswith('/'):
+                    parts = [p for p in tok.strip('/').split('/') if p]
+                    ref = self.vfs
+                    for p in parts:
+                        if isinstance(ref, dict) and p in ref:
+                            ref = ref[p]
+                        else:
+                            raise FileNotFoundError
+                    if isinstance(ref, dict):
+                        outputs.append(f"{tok}:\n" + ("  ".join(ref.keys()) if ref else ""))
+                    else:
+                        outputs.append(tok)
+                else:
+                    ref = self._get_vfs_ref()
+                    if tok in ref:
+                        if isinstance(ref[tok], dict):
+                            outputs.append(f"{tok}:\n" + ("  ".join(ref[tok].keys()) if ref[tok] else ""))
+                        else:
+                            outputs.append(tok)
+                    else:
+                        raise FileNotFoundError
+
+            except FileNotFoundError:
+                outputs.append(f"ls: {tok}: нет такого файла или каталога")
+
+        return "\n".join(outputs)
 
     def update_prompt(self):
         path_str = '/' + '/'.join(self.current_dir) if self.current_dir else '~'
         self.prompt = f"{self.username}@{self.hostname}:{path_str}$ "
-        self.cursor = (len(self.prompt), len(self.text.splitlines()) - 1)
+        self.cursor = self.get_cursor_from_index(len(self.text))
 
     def execute_command(self, command_line: str) -> str:
         if not command_line.strip():
             return ""
 
-        expanded = expand_env_vars(command_line)
-        parts = expanded.strip().split()
+        parts = command_line.strip().split()
         cmd, *args = parts
 
         if cmd == "exit":
@@ -247,10 +306,6 @@ class Terminal(TextInput):
         else:
             return f"Команда не найдена: {cmd}"
 
-    def _get_prompt_index(self):
-        lines = self.text.splitlines()
-        return len(self.text) - len(lines[-1]) + len(self.prompt)
-
 
 class TerminalApp(App):
     def __init__(self, vfs=None, start_script=None, **kwargs):
@@ -267,7 +322,6 @@ class TerminalApp(App):
         Window.set_title(f"Эмулятор - [{username}@{hostname}]")
 
 
-# ---------------------- запуск ----------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--vfs-path', type=str, default=None, help='Путь к ZIP VFS')

@@ -5,5 +5,7 @@ cd ..
 cd system/folder1
 ls
 cd subfolder1
-cd
+cd ----
+abababab
+bbb
 
