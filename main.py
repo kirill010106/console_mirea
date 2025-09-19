@@ -4,6 +4,7 @@ Config.set('input', 'mouse', 'mouse,multitouch_on_demand')
 import os
 import socket
 import re
+import argparse
 from kivy.app import App
 from kivy.uix.textinput import TextInput
 from kivy.core.window import Window
@@ -21,7 +22,7 @@ def expand_env_vars_system(token: str) -> str:
 
 
 class Terminal(TextInput):
-    def __init__(self, **kwargs):
+    def __init__(self, vfs_path=None, start_script=None, **kwargs):
         super().__init__(**kwargs)
         self.username = os.getenv("USERNAME") or os.getenv("USER") or "user"
         self.hostname = socket.gethostname()
@@ -34,6 +35,10 @@ class Terminal(TextInput):
         self.background_color = (0, 0, 0, 1)
         self.foreground_color = (0, 1, 0, 1)
         self.font_size = DEFAULT_FONT_SIZE
+        self.vfs_path = vfs_path
+        self.start_script = start_script
+        if start_script:
+            self.run_start_script(start_script)
 
     def _get_prompt_index(self):
         lines = self.text.splitlines()
@@ -110,6 +115,27 @@ class Terminal(TextInput):
         self.text = "\n".join(lines)
         self.cursor = self.get_cursor_from_index(len(self.prompt + text))
 
+    def run_start_script(self, script_path):
+        if not os.path.exists(script_path):
+            self.text += f"\nОшибка: стартовый скрипт не найден: {script_path}"
+            self.cursor = self.get_cursor_from_index(len(self.text))
+            return
+        with open(script_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                self.text += "\n" + self.prompt + line
+                self.cursor = self.get_cursor_from_index(len(self.text))
+                try:
+                    output = self.execute_command(line)
+                except Exception:
+                    output = "Ошибка при выполнении команды"
+                if output:
+                    self.text += "\n" + output
+        self.text += "\n" + self.prompt
+        self.cursor = self.get_cursor_from_index(len(self.text))
+
     def execute_command(self, command_line: str) -> str:
         if not command_line.strip():
             return ""
@@ -127,8 +153,13 @@ class Terminal(TextInput):
 
 
 class TerminalApp(App):
+    def __init__(self, vfs_path=None, start_script=None, **kwargs):
+        self.vfs_path = vfs_path
+        self.start_script = start_script
+        super().__init__(**kwargs)
+
     def build(self):
-        return Terminal()
+        return Terminal(vfs_path=self.vfs_path, start_script=self.start_script)
 
     def on_start(self):
         username = os.getenv("USERNAME") or os.getenv("USER") or "user"
@@ -137,4 +168,14 @@ class TerminalApp(App):
 
 
 if __name__ == "__main__":
-    TerminalApp().run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--vfs-path', type=str, default=None)
+    parser.add_argument('--start-script', type=str, default=None)
+    args = parser.parse_args()
+
+    if args.vfs_path:
+        print(f"DEBUG: VFS: {args.vfs_path}")
+    if args.start_script:
+        print(f"DEBUG: Start script: {args.start_script}")
+
+    TerminalApp(vfs_path=args.vfs_path, start_script=args.start_script).run()
