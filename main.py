@@ -6,6 +6,8 @@ import socket
 import re
 import argparse
 import zipfile
+import calendar
+import datetime
 from kivy.app import App
 from kivy.uix.textinput import TextInput
 from kivy.core.window import Window
@@ -61,6 +63,7 @@ class Terminal(TextInput):
         self.background_color = (0, 0, 0, 1)
         self.foreground_color = (0, 1, 0, 1)
         self.font_size = DEFAULT_FONT_SIZE
+        self.font_name = 'DejaVuSansMono'
 
         if not self.vfs_loaded:
             warning = "Внимание! VFS не загружена. Введите команду:\nloadvfs <путь к ZIP> или exit"
@@ -293,6 +296,28 @@ class Terminal(TextInput):
             return self.cmd_ls(args)
         elif cmd == "cd":
             return self.cmd_cd(args)
+        elif cmd == "rev":
+            if not args:
+                return "rev: не указаны аргументы"
+            return " ".join(arg[::-1] for arg in args)
+        elif cmd == "cal":
+            try:
+                today = datetime.date.today()
+                if not args:
+                    return calendar.month(today.year, today.month)
+                elif len(args) == 1:
+                    year = int(args[0])
+                    return calendar.calendar(year)
+                elif len(args) == 2:
+                    month = int(args[0])
+                    year = int(args[1])
+                    return calendar.month(year, month)
+                else:
+                    return "cal: слишком много аргументов"
+            except ValueError:
+                return f"cal: неверный аргумент: {args[0] if args else ''}"
+            except Exception:
+                return "cal: ошибка при выводе календаря"
         else:
             return f"Команда не найдена: {cmd}"
 
