@@ -6,6 +6,7 @@ import socket
 import re
 import argparse
 import zipfile
+import base64
 from kivy.app import App
 from kivy.uix.textinput import TextInput
 from kivy.core.window import Window
@@ -36,7 +37,15 @@ def load_vfs_from_zip(zip_path):
             if info.is_dir():
                 ref[parts[-1]] = {}
             else:
-                ref[parts[-1]] = z.read(info.filename)
+                data = z.read(info.filename)
+                try:
+                    # пробуем как текст UTF-8
+                    text = data.decode('utf-8')
+                    ref[parts[-1]] = text
+                except UnicodeDecodeError:
+                    # бинарник → кодируем base64
+                    b64 = base64.b64encode(data).decode('utf-8')
+                    ref[parts[-1]] = {"__base64__": True, "data": b64}
     return vfs
 
 
@@ -195,8 +204,10 @@ class Terminal(TextInput):
                     path.pop()
             else:
                 ref = self._get_vfs_ref(path)
-                if p not in ref or not isinstance(ref[p], dict):
+                if p not in ref:
                     raise ValueError(f"cd: {p}: нет такого каталога")
+                if not isinstance(ref[p], dict):
+                    raise ValueError(f"cd: {p}: не каталог")
                 path.append(p)
         return path
 
@@ -217,47 +228,46 @@ class Terminal(TextInput):
         if not self.vfs_loaded:
             return "Ошибка: VFS не загружена. Используйте loadvfs <zip> или exit"
 
-        use_system_env = False
-        if args and args[0] == "-s":
-            use_system_env = True
-            args = args[1:]
+        ref = self._get_vfs_ref()
+        out = []
+        for name, val in ref.items():
+            if isinstance(val, dict) and val.get("__base64__"):
+                out.append(name + " [B64]")
+            elif isinstance(val, dict):
+                out.append(name + "/")
+            else:
+                out.append(name)
+        return "  ".join(out)
 
+    def cmd_cat(self, args):
         if not args:
-            ref = self._get_vfs_ref()
-            return "  ".join(ref.keys())
+            return "Использование: cat <файл>"
+        ref = self._get_vfs_ref()
+        name = args[0]
+        if name not in ref:
+            return f"cat: {name}: нет такого файла"
+        val = ref[name]
+        if isinstance(val, dict) and val.get("__base64__"):
+            return val["data"]  # base64 строка
+        elif isinstance(val, str):
+            return val
+        else:
+            return f"cat: {name}: неизвестный тип файла"
 
-        outputs = []
-        for tok in args:
-            if use_system_env:
-                tok = expand_env_vars_system(tok)
-
-            try:
-                if tok.startswith('/'):
-                    parts = [p for p in tok.strip('/').split('/') if p]
-                    ref = self.vfs
-                    for p in parts:
-                        if isinstance(ref, dict) and p in ref:
-                            ref = ref[p]
-                        else:
-                            raise FileNotFoundError
-                    if isinstance(ref, dict):
-                        outputs.append(f"{tok}:\n" + ("  ".join(ref.keys()) if ref else ""))
-                    else:
-                        outputs.append(tok)
-                else:
-                    ref = self._get_vfs_ref()
-                    if tok in ref:
-                        if isinstance(ref[tok], dict):
-                            outputs.append(f"{tok}:\n" + ("  ".join(ref[tok].keys()) if ref[tok] else ""))
-                        else:
-                            outputs.append(tok)
-                    else:
-                        raise FileNotFoundError
-
-            except FileNotFoundError:
-                outputs.append(f"ls: {tok}: нет такого файла или каталога")
-
-        return "\n".join(outputs)
+    def cmd_showbits(self, args):
+        if not args:
+            return "Использование: showbits <файл>"
+        ref = self._get_vfs_ref()
+        name = args[0]
+        if name not in ref:
+            return f"showbits: {name}: нет такого файла"
+        val = ref[name]
+        if isinstance(val, dict) and val.get("__base64__"):
+            raw = base64.b64decode(val["data"])
+            bits = "".join(format(b, "08b") for b in raw)
+            return bits
+        else:
+            return f"showbits: {name}: не бинарный файл"
 
     def update_prompt(self):
         path_str = '/' + '/'.join(self.current_dir) if self.current_dir else '~'
@@ -293,6 +303,10 @@ class Terminal(TextInput):
             return self.cmd_ls(args)
         elif cmd == "cd":
             return self.cmd_cd(args)
+        elif cmd == "cat":
+            return self.cmd_cat(args)
+        elif cmd == "showbits":
+            return self.cmd_showbits(args)
         else:
             return f"Команда не найдена: {cmd}"
 
