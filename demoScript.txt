@@ -68,9 +68,6 @@ ls -l /system
 ls -l /system/root
 ls -l /system/home
 ls -l /system/nonexistent
-cd /system && ls -l
-cd /system/root && ls -l
-cd /system/home && ls -l
 mv /system/file.txt /system/home/file.txt
 mv /system/home/file.txt /system/root/
 mv /system/root/file.txt /system/home/
@@ -80,54 +77,3 @@ chown bob /system
 ls -l /system/root
 ls -l /system/home
 ls -l /system
-cd /system && mv file.txt ../home/file.txt
-cd /system/root && mv file.txt ../../home/
-cd /system/home && mv file.txt ../root/
-cd /system && cd .. && ls
-cd /system && cd ../.. && ls
-cd /system && cd ./././ && ls
-cd /system && cd ./.././ && ls
-cd /system && cd ././../ && ls
-cd /system && cd ././/./ && ls
-cd /system && cd //././ && ls
-loadvfs /tmp/missing.zip
-loadvfs /etc/passwd
-loadvfs .
-loadvfs /
-loadvfs
-cd /system && rev "тест" && ls
-cd /system && cal 1999 && ls
-cd /system && cal 2100 && ls
-cd /system && mv dir1 dir2
-cd /system && chown test dir2
-cd /system && ls -l dir2
-cd /system && mkdir dir1
-cd /system && mv dir1 dir2
-cd /system && mv dir2 dir3
-cd /system && mv dir3 dir1
-cd /system && ls -l dir1
-cd /system/root && ls -l
-cd /system/home && ls -l
-cd /system && mv file.txt /system/root/file.txt
-cd /system && mv /system/file.txt /system/home/
-cd /system && mv /system/file.txt /system/home/newname.txt
-cd /system && chown root /system/home/newname.txt
-cd /system && rev "123" && rev "456"
-cd /system && cal 2 2024
-cd /system && cal 3 2024
-cd /system && cal 4 2024
-cd /system && cal 5 2024
-cd /system && cal 6 2024
-cd /system && cal 7 2024
-cd /system && cal 8 2024
-cd /system && cal 9 2024
-cd /system && cal 10 2024
-cd /system && cal 11 2024
-cd /system && cal 12 2024
-cd /system && ls -l /system/root
-cd /system && ls -l /system/home
-cd /system && ls -l /system
-cd /system && mv /system/root/file.txt /system/home/
-cd /system && mv /system/home/file.txt /system/root/
-cd /system && mv /system/root /system/tmp
-cd /system && mv /system/tmp /system/root
