@@ -209,9 +209,11 @@ class Terminal(TextInput):
             elif p == '..':
                 if path:
                     path.pop()
+                else:
+                    raise ValueError(f"cd: {target}: невозможно подняться выше корня")
             else:
                 ref = self._get_vfs_ref(path)
-                if p not in ref or not isinstance(ref[p], dict):
+                if p not in ref or not isinstance(ref[p], dict) or 'content' in ref[p]:
                     raise ValueError(f"cd: {p}: нет такого каталога")
                 path.append(p)
         return path
@@ -230,9 +232,11 @@ class Terminal(TextInput):
             elif p == '..':
                 if path:
                     path.pop()
+                else:
+                    raise FileNotFoundError(f"{target}: нет такого файла или каталога")
             else:
                 ref = self._get_vfs_ref(path)
-                if p not in ref or not isinstance(ref[p], dict):
+                if p not in ref or not isinstance(ref[p], dict) or 'content' in ref[p]:
                     raise FileNotFoundError(f"{target}: нет такого файла или каталога")
                 path.append(p)
 
@@ -255,7 +259,13 @@ class Terminal(TextInput):
             self.current_dir = []
         else:
             try:
-                self.current_dir = self._resolve_path(args[0])
+                path = self._resolve_path(args[0])
+                ref = self.vfs
+                for p in path:
+                    ref = ref[p]
+                if 'content' in ref:
+                    return f"cd: {args[0]}: не является каталогом"
+                self.current_dir = path
             except ValueError as e:
                 return str(e)
         self.update_prompt()
@@ -282,9 +292,14 @@ class Terminal(TextInput):
                 for item in items:
                     obj = ref[item]
                     owner = obj.get('owner', 'unknown')
-                    size = len(obj.get('content', b'')) if 'content' in obj else 0
+                    size = len(obj.get('content', b'')) if 'content' not in obj else 0
                     mode = 'd' if 'content' not in obj else '-'
-                    lines.append(f"{mode}rw-r--r-- 1 {owner} {size} {item}")
+                    if 'content' not in obj:
+                        subdirs = sum(1 for k in obj.keys() if k != 'owner' and isinstance(obj[k], dict) and 'content' not in obj[k])
+                        nlink = 2 + subdirs 
+                    else:
+                        nlink = 1
+                    lines.append(f"{mode}rw-r--r-- {nlink} {owner} {size} {item}")
                 return "\n".join(lines)
             return "  ".join(items)
 
@@ -298,39 +313,49 @@ class Terminal(TextInput):
                     parts = [p for p in tok.strip('/').split('/') if p]
                     ref = self.vfs
                     for p in parts:
-                        if isinstance(ref, dict) and p in ref:
+                        if isinstance(ref, dict) and p in ref and 'content' not in ref[p]:
                             ref = ref[p]
                         else:
                             raise FileNotFoundError
-                    if isinstance(ref, dict):
+                    if isinstance(ref, dict) and 'content' not in ref:
                         items = [k for k in ref.keys() if k != 'owner']
                         if long_format:
                             lines = []
                             for item in items:
                                 obj = ref[item]
                                 owner = obj.get('owner', 'unknown')
-                                size = len(obj.get('content', b'')) if 'content' in obj else 0
+                                size = len(obj.get('content', b'')) if 'content' not in obj else 0
                                 mode = 'd' if 'content' not in obj else '-'
-                                lines.append(f"{mode}rw-r--r-- 1 {owner} {size} {item}")
+                                if 'content' not in obj:
+                                    subdirs = sum(1 for k in obj.keys() if k != 'owner' and isinstance(obj[k], dict) and 'content' not in obj[k])
+                                    nlink = 2 + subdirs
+                                else:
+                                    nlink = 1
+                                lines.append(f"{mode}rw-r--r-- {nlink} {owner} {size} {item}")
                             outputs.append(f"{tok}:\n" + "\n".join(lines))
                         else:
                             outputs.append(f"{tok}:\n" + ("  ".join(items) if items else ""))
                     else:
-                        outputs.append(tok)
+                        outputs.append(f"ls: {tok}: не является каталогом")
                 else:
                     ref = self._get_vfs_ref()
                     if tok in ref:
                         item = ref[tok]
-                        if isinstance(item, dict):
+                        if isinstance(item, dict) and 'content' not in item:
                             items = [k for k in item.keys() if k != 'owner']
                             if long_format:
                                 lines = []
                                 for item_name in items:
                                     obj = item[item_name]
                                     owner = obj.get('owner', 'unknown')
-                                    size = len(obj.get('content', b'')) if 'content' in obj else 0
+                                    size = len(obj.get('content', b'')) if 'content' not in obj else 0
                                     mode = 'd' if 'content' not in obj else '-'
-                                    lines.append(f"{mode}rw-r--r-- 1 {owner} {size} {item_name}")
+                                    if 'content' not in obj:
+                                        subdirs = sum(1 for k in obj.keys() if k != 'owner' and isinstance(obj[k], dict) and 'content' not in obj[k])
+                                        nlink = 2 + subdirs
+                                    else:
+                                        nlink = 1
+                                    lines.append(f"{mode}rw-r--r-- {nlink} {owner} {size} {item_name}")
                                 outputs.append(f"{tok}:\n" + "\n".join(lines))
                             else:
                                 outputs.append(f"{tok}:\n" + ("  ".join(items) if items else ""))
@@ -338,9 +363,11 @@ class Terminal(TextInput):
                             if long_format:
                                 owner = item.get('owner', 'unknown')
                                 size = len(item.get('content', b''))
-                                outputs.append(f"-rw-r--r-- 1 {owner} {size} {tok}")
+                                mode = '-'
+                                nlink = 1
+                                outputs.append(f"{mode}rw-r--r-- {nlink} {owner} {size} {tok}")
                             else:
-                                outputs.append(tok)
+                                outputs.append(f"{tok}:\n" + ("  ".join(items) if items else ""))
                     else:
                         raise FileNotFoundError
 
@@ -348,7 +375,7 @@ class Terminal(TextInput):
                 outputs.append(f"ls: {tok}: нет такого файла или каталога")
 
         return "\n".join(outputs)
-    
+
     def cmd_mv(self, args):
         if len(args) != 2:
             return "mv: требуется два аргумента: <источник> <назначение>"
@@ -360,7 +387,6 @@ class Terminal(TextInput):
         except FileNotFoundError as e:
             return f"mv: {e}"
 
-        # Проверим, является ли dst директорией
         dst_is_dir = False
         dst_parent = None
         dst_name = None
@@ -372,52 +398,49 @@ class Terminal(TextInput):
             dst_path = self.current_dir.copy()
             dst_parts = dst.split('/')
 
-        # Проходим по всем частям пути, кроме последней
         for p in dst_parts[:-1]:
             if p == '' or p == '.':
                 continue
             elif p == '..':
                 if dst_path:
                     dst_path.pop()
+                else:
+                    continue
             else:
                 try:
                     dst_ref = self._get_vfs_ref(dst_path)
-                    if p not in dst_ref or not isinstance(dst_ref[p], dict):
+                    if p not in dst_ref or not isinstance(dst_ref[p], dict) or 'content' in dst_ref[p]:
                         return f"mv: невозможно создать '{dst}': нет такого каталога"
                     dst_path.append(p)
                 except Exception:
                     return f"mv: невозможно создать '{dst}': нет такого каталога"
 
-        # Теперь dst_path — путь к родительской директории
         dst_parent = self._get_vfs_ref(dst_path)
         dst_name = dst_parts[-1] if dst_parts else ''
 
-        # Проверяем, существует ли dst_name в dst_parent
         if dst_name in dst_parent:
             dst_target = dst_parent[dst_name]
-            if isinstance(dst_target, dict):
-                dst_is_dir = True
+            if 'content' in dst_target:
+                return f"mv: невозможно переименовать '{dst}': файл существует"
             else:
-                dst_is_dir = False
+                dst_is_dir = True
         else:
             dst_is_dir = False
 
-        # Если dst — директория, и dst_name пустое или равно точке — используем имя src
         if dst_is_dir and (not dst_name or dst_name == '.'):
             dst_name = src_name
 
-        # Если dst_name уже существует — ошибка
         if dst_name in dst_parent:
             return f"mv: '{dst}' существует"
 
-        # Перемещаем
         dst_parent[dst_name] = src_obj
         del src_parent[src_name]
 
         return ""
+
     def cmd_chown(self, args):
         if len(args) != 2:
-            return "chown: требуется два аргумента: <пользователь> <файл>"
+            return "chown: требуется два аргумента: <пользователь> <файл|каталог>"
 
         new_owner, target = args
 
@@ -426,12 +449,36 @@ class Terminal(TextInput):
         except FileNotFoundError as e:
             return f"chown: {e}"
 
-        if isinstance(obj, dict):
-            obj['owner'] = new_owner
-            return ""
-        else:
-            return f"chown: {target}: неверный тип объекта"
+        # Обновляем владельца объекта (файл или каталог)
+        obj['owner'] = new_owner
+        return ""
+    def cmd_rev(self, args):
+        if not args:
+            return "rev: не указаны аргументы"
 
+        outputs = []
+        for arg in args:
+            try:
+                parent, name, obj = self._resolve_path_and_parent(arg)
+                if 'content' in obj:
+                    content = obj['content']
+                    try:
+                        text_content = content.decode('utf-8')
+                    except UnicodeDecodeError:
+                        outputs.append(f"rev: {arg}: бинарный файл")
+                        continue
+                    if not text_content:
+                        outputs.append(f"rev: {arg}: файл пуст")
+                        continue
+                    lines = text_content.splitlines()
+                    reversed_lines = [line[::-1] for line in lines]
+                    outputs.append("\n".join(reversed_lines))
+                else:
+                    outputs.append(f"rev: {arg}: это каталог")
+            except FileNotFoundError:
+                outputs.append(arg[::-1])
+
+        return "\n".join(outputs)
     def update_prompt(self):
         path_str = '/' + '/'.join(self.current_dir) if self.current_dir else '~'
         self.prompt = f"{self.username}@{self.hostname}:{path_str}$ "
@@ -467,9 +514,7 @@ class Terminal(TextInput):
         elif cmd == "cd":
             return self.cmd_cd(args)
         elif cmd == "rev":
-            if not args:
-                return "rev: не указаны аргументы"
-            return " ".join(arg[::-1] for arg in args)
+            return self.cmd_rev(args)
         elif cmd == "cal":
             try:
                 today = datetime.date.today()

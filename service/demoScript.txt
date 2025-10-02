@@ -1,0 +1,14 @@
+ls
+cd system
+ls 
+cd ..
+cd system/folder1
+cd root
+ls
+cd subfolder1
+cd ----
+abababab
+bbb
+ls -s $abababab
+ls -s $USERPROFILE
+

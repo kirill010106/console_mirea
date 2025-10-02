@@ -1,0 +1,18 @@
+chown user /system
+chown root /system/root
+chown admin /system/home
+chown guest /nonexistent
+chown
+chown user
+rev hello
+rev "hello world"
+rev 12345
+rev
+rev ""
+rev a
+rev abcdefghijklmnopqrstuvwxyz
+cal
+cal 2024
+cal 2025
+cal 1 2024
+ls -l

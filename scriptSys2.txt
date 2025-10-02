@@ -1,0 +1,33 @@
+# Проверим текущую директорию
+ls
+
+
+# Проверим, что в системе
+cd system
+ls
+cd folder1
+ls
+rev abab.txt
+
+# Проверим календарь
+cal
+cal 2023
+cal 10 2023
+
+# Проверим владельца
+chown user abab.txt
+
+# Переместим файл
+mv abab.txt ../folder2
+ls
+
+# Вернёмся и посмотрим
+cd ..
+ls
+
+# Проверим ls с флагами
+ls -l
+ls -s
+
+# Проверим rev с аргументами
+rev hello world
