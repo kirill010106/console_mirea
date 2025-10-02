@@ -24,6 +24,7 @@ def expand_env_vars_system(token: str) -> str:
 class Terminal(TextInput):
     def __init__(self, vfs_path=None, start_script=None, **kwargs):
         super().__init__(**kwargs)
+        self.markup = True 
         self.username = os.getenv("USERNAME") or os.getenv("USER") or "user"
         self.hostname = socket.gethostname()
         self.prompt = f"{self.username}@{self.hostname}:~$ "
@@ -37,6 +38,9 @@ class Terminal(TextInput):
         self.font_size = DEFAULT_FONT_SIZE
         self.vfs_path = vfs_path
         self.start_script = start_script
+        self.has_error = False
+
+        # Запускаем скрипт, если он задан
         if start_script:
             self.run_start_script(start_script)
 
@@ -116,10 +120,36 @@ class Terminal(TextInput):
         self.cursor = self.get_cursor_from_index(len(self.prompt + text))
 
     def run_start_script(self, script_path):
-        if not os.path.exists(script_path):
-            self.text += f"\nОшибка: стартовый скрипт не найден: {script_path}"
+        # Проверяем VFS
+        if self.vfs_path:
+            if not os.path.exists(self.vfs_path):
+                self.text += f"\n[ERROR] VFS не найден: {self.vfs_path}"
+                self.has_error = True
+                self.show_vfs_load_suggestion()
+                # Добавляем новую строку с prompt
+                self.text += "\n" + self.prompt
+                self.cursor = self.get_cursor_from_index(len(self.text))
+                return
+        else:
+            self.text += "\n[WARNING] VFS не загружен"
+            self.has_error = True
+            self.show_vfs_load_suggestion()
+            # Добавляем новую строку с prompt
+            self.text += "\n" + self.prompt
             self.cursor = self.get_cursor_from_index(len(self.text))
             return
+
+        # Проверяем скрипт
+        if not os.path.exists(script_path):
+            self.text += f"\nОшибка: стартовый скрипт не найден: {script_path}"
+            self.has_error = True
+            self.show_vfs_load_suggestion()
+            # Добавляем новую строку с prompt
+            self.text += "\n" + self.prompt
+            self.cursor = self.get_cursor_from_index(len(self.text))
+            return
+
+        # Выполняем скрипт
         with open(script_path, 'r') as f:
             for line in f:
                 line = line.strip()
@@ -129,26 +159,53 @@ class Terminal(TextInput):
                 self.cursor = self.get_cursor_from_index(len(self.text))
                 try:
                     output = self.execute_command(line)
-                except Exception:
-                    output = "Ошибка при выполнении команды"
+                except Exception as e:
+                    output = f"Ошибка: {e}"
+                    self.has_error = True
+                else:
+                    if output and output.startswith("Команда не найдена:"):
+                        self.has_error = True
+                        output = f"[ERROR] {output}"
+
                 if output:
                     self.text += "\n" + output
+
+        if self.has_error:
+            self.text += "\n[ERROR] Ошибка при выполнении скрипта"
+
+        # Всегда заканчиваем на новой строке с prompt
         self.text += "\n" + self.prompt
         self.cursor = self.get_cursor_from_index(len(self.text))
+
+    def show_vfs_load_suggestion(self):
+        self.text += "\nloadvfs <путь>"
 
     def execute_command(self, command_line: str) -> str:
         if not command_line.strip():
             return ""
         parts = command_line.strip().split()
         cmd = parts[0] if parts else ""
+
         if cmd == "exit":
             App.get_running_app().stop()
             return ""
+
+        if cmd == "loadvfs":
+            if len(parts) < 2:
+                return "loadvfs <путь>"
+            vfs_path = parts[1]
+            if not os.path.exists(vfs_path):
+                return f"[ERROR] {vfs_path} не существует"
+            self.vfs_path = vfs_path
+            return f"VFS загружен: {vfs_path}"
+
         if cmd == "ls" or cmd == "cd":
             return command_line
+
         expanded = expand_env_vars_system(command_line)
         if expanded != command_line:
             return expanded
+
         return f"Команда не найдена: {cmd}"
 
 
@@ -165,6 +222,9 @@ class TerminalApp(App):
         username = os.getenv("USERNAME") or os.getenv("USER") or "user"
         hostname = socket.gethostname()
         Window.set_title(f"Эмулятор - [{username}@{hostname}]")
+
+    def on_stop(self):
+        print("Приложение завершено.")
 
 
 if __name__ == "__main__":
