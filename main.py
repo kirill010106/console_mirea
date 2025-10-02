@@ -38,14 +38,16 @@ def load_vfs_from_zip(zip_path):
                 ref[parts[-1]] = {}
             else:
                 data = z.read(info.filename)
-                try:
-                    # пробуем как текст UTF-8
-                    text = data.decode('utf-8')
-                    ref[parts[-1]] = text
-                except UnicodeDecodeError:
-                    # бинарник → кодируем base64
+                if parts[-1].endswith('.base64'):
                     b64 = base64.b64encode(data).decode('utf-8')
                     ref[parts[-1]] = {"__base64__": True, "data": b64}
+                else:
+                    try:
+                        text = data.decode('utf-8')
+                        ref[parts[-1]] = text
+                    except UnicodeDecodeError:
+                        b64 = base64.b64encode(data).decode('utf-8')
+                        ref[parts[-1]] = {"__base64__": True, "data": b64}
     return vfs
 
 
@@ -246,13 +248,16 @@ class Terminal(TextInput):
         name = args[0]
         if name not in ref:
             return f"cat: {name}: нет такого файла"
+
+        # Только файлы с расширением .base64
+        if not name.endswith('.base64'):
+            return f"cat: {name}: ожидается файл с расширением .base64"
+
         val = ref[name]
         if isinstance(val, dict) and val.get("__base64__"):
             return val["data"]  # base64 строка
-        elif isinstance(val, str):
-            return val
         else:
-            return f"cat: {name}: неизвестный тип файла"
+            return f"cat: {name}: файл не является base64-данными"
 
     def cmd_showbits(self, args):
         if not args:
@@ -261,13 +266,42 @@ class Terminal(TextInput):
         name = args[0]
         if name not in ref:
             return f"showbits: {name}: нет такого файла"
+
+        # Только файлы с расширением .base64
+        if not name.endswith('.base64'):
+            return f"showbits: {name}: ожидается файл с расширением .base64"
+
         val = ref[name]
         if isinstance(val, dict) and val.get("__base64__"):
-            raw = base64.b64decode(val["data"])
-            bits = "".join(format(b, "08b") for b in raw)
-            return bits
+            try:
+                raw = base64.b64decode(val["data"])
+                bits = "".join(format(b, "08b") for b in raw)
+                return bits
+            except Exception as e:
+                return f"Ошибка декодирования: {e}"
         else:
-            return f"showbits: {name}: не бинарный файл"
+            return f"showbits: {name}: не base64-файл"
+
+    def cmd_decodetxt(self, args):
+        if not args:
+            return "Использование: decodetxt <файл.base64>"
+        ref = self._get_vfs_ref()
+        name = args[0]
+        if name not in ref:
+            return f"decodetxt: {name}: нет такого файла"
+
+        if not name.endswith('.base64'):
+            return f"decodetxt: {name}: ожидается файл с расширением .base64"
+
+        val = ref[name]
+        if isinstance(val, dict) and val.get("__base64__"):
+            try:
+                decoded = base64.b64decode(val["data"]).decode('utf-8')
+                return decoded
+            except Exception as e:
+                return f"Ошибка декодирования: {e}"
+        else:
+            return f"decodetxt: {name}: не base64-файл"
 
     def update_prompt(self):
         path_str = '/' + '/'.join(self.current_dir) if self.current_dir else '~'
@@ -307,6 +341,8 @@ class Terminal(TextInput):
             return self.cmd_cat(args)
         elif cmd == "showbits":
             return self.cmd_showbits(args)
+        elif cmd == "decodetxt":
+            return self.cmd_decodetxt(args)
         else:
             return f"Команда не найдена: {cmd}"
 
