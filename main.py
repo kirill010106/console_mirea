@@ -292,7 +292,7 @@ class Terminal(TextInput):
                 for item in items:
                     obj = ref[item]
                     owner = obj.get('owner', 'unknown')
-                    size = len(obj.get('content', b'')) if 'content' not in obj else 0
+                    size = len(obj.get('content', b''))
                     mode = 'd' if 'content' not in obj else '-'
                     if 'content' not in obj:
                         subdirs = sum(1 for k in obj.keys() if k != 'owner' and isinstance(obj[k], dict) and 'content' not in obj[k])
@@ -324,7 +324,7 @@ class Terminal(TextInput):
                             for item in items:
                                 obj = ref[item]
                                 owner = obj.get('owner', 'unknown')
-                                size = len(obj.get('content', b'')) if 'content' not in obj else 0
+                                size = len(obj.get('content', b''))
                                 mode = 'd' if 'content' not in obj else '-'
                                 if 'content' not in obj:
                                     subdirs = sum(1 for k in obj.keys() if k != 'owner' and isinstance(obj[k], dict) and 'content' not in obj[k])
@@ -348,7 +348,7 @@ class Terminal(TextInput):
                                 for item_name in items:
                                     obj = item[item_name]
                                     owner = obj.get('owner', 'unknown')
-                                    size = len(obj.get('content', b'')) if 'content' not in obj else 0
+                                    size = len(obj.get('content', b''))
                                     mode = 'd' if 'content' not in obj else '-'
                                     if 'content' not in obj:
                                         subdirs = sum(1 for k in obj.keys() if k != 'owner' and isinstance(obj[k], dict) and 'content' not in obj[k])
@@ -367,7 +367,7 @@ class Terminal(TextInput):
                                 nlink = 1
                                 outputs.append(f"{mode}rw-r--r-- {nlink} {owner} {size} {tok}")
                             else:
-                                outputs.append(f"{tok}:\n" + ("  ".join(items) if items else ""))
+                                outputs.append(tok)
                     else:
                         raise FileNotFoundError
 
